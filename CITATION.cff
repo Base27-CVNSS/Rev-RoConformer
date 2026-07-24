@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use or discuss Rev-RoConformer, please cite this preprint project and the foundational works listed in the manuscript."
+title: "Rev-RoConformer: Memory-Efficient Depth Scaling of Rotary Conformers for Automatic Speech Recognition"
+type: article
+authors:
+  - name: "Base27-CVNSS Research"
+repository-code: "https://github.com/Base27-CVNSS/Rev-RoConformer"
+url: "https://github.com/Base27-CVNSS/Rev-RoConformer"
+version: "0.1.0-preprint"
+date-released: 2026-07-25
+license: Apache-2.0
+keywords:
+  - automatic speech recognition
+  - ASR
+  - speech-to-text
+  - Conformer
+  - rotary position embedding
+  - RoPE
+  - reversible neural networks
+  - memory-efficient training
+  - deep learning
+abstract: >-
+  Rev-RoConformer is a research proposal for an automatic speech recognition
+  encoder that combines RoPE-based global self-attention, Conformer-style
+  local acoustic convolution, and RevNet/Reformer-style additive-coupling
+  reversible blocks. The project focuses on depth-dependent activation-memory
+  scaling and explicitly separates that problem from the quadratic sequence
+  complexity of full self-attention. Empirical WER, throughput, and GPU-memory
+  claims remain to be established by the published benchmark protocol.
