@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rev-RoConformer — Multilingual Preprint</title>
+<meta name="description" content="Rev-RoConformer multilingual research preprint: reversible depth, RoPE global attention and Conformer local acoustics for ASR.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <div style="font-size:3rem">🎙️♻️🌀</div>
+  <h1>Rev‑RoConformer</h1>
+  <p class="subtitle">Memory-Efficient Depth Scaling of Rotary Conformers for Automatic Speech Recognition</p>
+  <div class="equation">T² ⊕ e<sup>itΘ</sup> ⊕ C<sub>local</sub> ⊕ R<sup>−1</sup>R = I</div>
+  <div class="badges"><span class="badge">Preprint proposal</span><span class="badge">Literature cutoff 2026‑07‑25</span><span class="badge">6 language editions</span><span class="badge">No fabricated benchmarks</span></div>
+</header>
+<main class="landing">
+  <h2>🌐 Choose a language</h2>
+  <div class="language-grid">
+    <a class="language-card" href="en.html"><strong>🇬🇧 English</strong><span>Primary scholarly edition</span></a>
+    <a class="language-card" href="vi.html"><strong>🇻🇳 Tiếng Việt</strong><span>Bản preprint tiếng Việt</span></a>
+    <a class="language-card" href="zh-CN.html"><strong>🇨🇳 简体中文</strong><span>简体中文预印本</span></a>
+    <a class="language-card" href="ru.html"><strong>🇷🇺 Русский</strong><span>Русская версия препринта</span></a>
+    <a class="language-card" href="es.html"><strong>🇪🇸 Español</strong><span>Edición del preprint en español</span></a>
+    <a class="language-card" href="fr.html"><strong>🇫🇷 Français</strong><span>Édition française du préprint</span></a>
+  </div>
+  <div class="note"><strong>Scientific status.</strong> This repository proves only structural/asymptotic properties derivable from reversible coupling and RoPE. ASR accuracy, wall-clock speed and measured GPU-memory advantages remain hypotheses until benchmark logs are published.</div>
+  <h2>🔎 What is the claimed gap?</h2>
+  <p>Prior art already contains RoPE-Conformer ASR, reversible residual networks, reversible Transformer blocks, RoPE + reversible blocks in TTS, and even a reversible Conformer for speech-to-speech translation. The remaining research hypothesis is narrower: an <strong>ASR-focused RoPE-Conformer using additive-coupling activation reversibility, evaluated explicitly for depth–memory–compute–WER scaling against ordinary and gradient-checkpointed baselines</strong>.</p>
+  <p><a href="../RESEARCH_GAP.md">Read the literature-gap audit →</a></p>
+</main>
+<footer class="footer">Base27-CVNSS · Rev‑RoConformer · 2026 · <code>preprint v0.1</code></footer>
+</body></html>
