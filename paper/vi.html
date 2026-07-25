@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rev-RoConformer — Preprint Tiếng Việt</title>
+<meta name="description" content="Rev-RoConformer: mở rộng độ sâu Conformer dùng RoPE với cơ chế reversible cho nhận dạng tiếng nói tự động.">
+<link rel="stylesheet" href="style.css">
+<script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},svg:{fontCache:'global'}};</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+</head>
+<body>
+<nav class="langbar"><a href="index.html">🌐</a><a href="en.html">EN</a><a class="active" href="vi.html">VI</a><a href="zh-CN.html">中文</a><a href="ru.html">RU</a><a href="es.html">ES</a><a href="fr.html">FR</a></nav>
+<header class="hero"><h1>Rev‑RoConformer</h1><p class="subtitle">Mở rộng độ sâu Conformer dùng RoPE với bộ nhớ huấn luyện hiệu quả cho Nhận dạng tiếng nói tự động</p><div class="equation">T² ⊕ e<sup>itΘ</sup> ⊕ C<sub>local</sub> ⊕ R<sup>−1</sup>R = I</div><div class="badges"><span class="badge">Preprint v0.1</span><span class="badge">25/07/2026</span><span class="badge">Chưa phản biện đồng cấp</span><span class="badge">ASR / Speech-to-Text</span></div></header>
+<article class="paper">
+<h1>Rev‑RoConformer: Mở rộng độ sâu Conformer dùng RoPE với bộ nhớ huấn luyện hiệu quả cho Nhận dạng tiếng nói tự động</h1>
+<p class="authors"><strong>Base27-CVNSS Research</strong><br>Preprint nghiên cứu mở · 25/07/2026<br><a href="https://github.com/Base27-CVNSS/Rev-RoConformer">github.com/Base27-CVNSS/Rev-RoConformer</a></p>
+
+<section class="abstract"><strong>Tóm tắt.</strong> Conformer đã trở thành một kiến trúc quan trọng trong nhận dạng tiếng nói tự động (Automatic Speech Recognition — ASR) nhờ khả năng kết hợp self-attention để mô hình hóa quan hệ xa với convolution để mô hình hóa cấu trúc âm học cục bộ. Rotary Position Embedding (RoPE) đã được chứng minh riêng là hoạt động tốt trong ASR, trong khi mạng residual khả nghịch đã thiết lập cơ chế tái dựng activation trung gian khi lan truyền ngược thay vì lưu trạng thái của mọi tầng. Chúng tôi đề xuất <strong>Rev‑RoConformer</strong>, một kiến trúc nghiên cứu cho ASR kết hợp attention toàn cục dựa trên RoPE, convolution cục bộ kiểu Conformer và additive coupling kiểu RevNet/Reformer để nghiên cứu một trục hiệu quả cụ thể: <em>bộ nhớ activation huấn luyện phụ thuộc độ sâu</em>. Kiến trúc không tuyên bố loại bỏ chi phí tính toán bậc hai của dense global attention và cũng không tuyên bố lợi thế bộ nhớ inference nhờ reversibility. Chúng tôi suy ra các phương trình tái dựng, chứng minh RoPE bảo toàn chuẩn, và chỉ ra rằng phần lưu activation phụ thuộc độ sâu có thể về mặt tiệm cận không còn tăng theo số tầng trong điều kiện thực thi reversible lý tưởng, trong khi compute của attention vẫn bậc hai theo chiều dài chuỗi. Rà soát nguồn công khai tới ngày 25/07/2026 tìm thấy nhiều tiền lệ gần—bao gồm RoPE-Conformer cho ASR, RoPE + reversible trong TTS, và reversible Conformer cho speech-to-speech translation—nhưng chưa xác định được một nghiên cứu ASR khớp toàn bộ giao điểm giữa RoPE-Conformer và additive-coupling activation reversibility kèm đánh giá có kiểm soát depth–memory–compute–WER. Vì vậy novelty được trình bày như một giả thuyết có thể bác bỏ, không phải tuyên bố tuyệt đối “lần đầu tiên”. Preprint xác định thiết kế thực nghiệm so sánh Conformer tiêu chuẩn, RoPE, reversible và gradient checkpointing theo ba chế độ iso-model, iso-memory và iso-compute. Không có số WER, throughput hay VRAM đo thực tế nào được bịa đặt; các claim thực nghiệm vẫn để mở cho đến khi công bố log benchmark tái lập được.</section>
+
+<h2>1. Giới thiệu</h2>
+<p>Nhận dạng tiếng nói tự động phải đồng thời mô hình hóa cấu trúc ở nhiều thang thời gian. Mẫu phổ và âm vị cục bộ diễn ra trong vài chục tới vài trăm mili giây, trong khi phụ thuộc từ vựng, cú pháp, diễn ngôn và bối cảnh người nói có thể kéo dài hơn rất nhiều. Conformer giải quyết mâu thuẫn này bằng cách kết hợp self-attention kiểu Transformer với các mô-đun convolution trong cùng encoder ASR [1].</p>
+<p>Tuy nhiên, khi encoder speech tăng quy mô xuất hiện hai bài toán scaling khác nhau. Thứ nhất là <strong>bài toán chiều dài chuỗi</strong>: dense self-attention đánh giá tương tác trên chuỗi acoustic nên chi phí số học tăng gần bậc hai theo số frame. Thứ hai là <strong>bài toán bộ nhớ theo độ sâu</strong>: backpropagation thông thường lưu activation trung gian của nhiều tầng encoder, khiến bộ nhớ tăng theo số layer. Hai bài toán liên hệ trong hệ thống thực tế nhưng khác nhau về bản chất toán học.</p>
+<p>Rev‑RoConformer xuất phát từ quan điểm rằng mỗi bottleneck phải được giải quyết bằng đúng công cụ của nó. RoPE tổ chức hình học vị trí bên trong attention [4,5]. Convolution của Conformer cung cấp inductive bias âm học cục bộ [1]. FlashAttention và sparse/local attention nhắm vào hiệu quả phía sequence [9]. Reversible residual computation nhắm vào activation storage phụ thuộc độ sâu [2,3].</p>
+<blockquote><strong>Câu hỏi nghiên cứu trung tâm.</strong> Một ASR Conformer có thể giữ RoPE global attention và local convolution, đồng thời dùng reversible additive coupling để giảm chi phí bộ nhớ huấn luyện khi tăng độ sâu encoder mà không làm suy giảm không chấp nhận được chất lượng nhận dạng, độ ổn định số học hoặc throughput huấn luyện hay không?</blockquote>
+<p>Mục tiêu của dự án không phải tuyên bố tạo ra một “STT tối ưu tuyệt đối”. Mục tiêu là đo xem reversible depth có thay đổi <em>biên Pareto</em> giữa WER, bộ nhớ GPU, compute và độ sâu hữu ích hay không.</p>
+
+<h2>2. Khoảng trống nghiên cứu và quan hệ với công trình trước</h2>
+<h3>2.1 Conformer và RoPE-Conformer cho ASR</h3>
+<p>Conformer thiết lập mẫu kết hợp self-attention và convolution trong ASR [1]. Li, Xu và Zhang sau đó nghiên cứu trực tiếp Rotary Position Embedding trong Conformer end-to-end speech recognition và báo cáo cải thiện trên AISHELL-1 và LibriSpeech [5]. Zhang và cộng sự tiếp tục benchmark RoPE trên nhiều điều kiện ASR hơn và phát hành recipe trong SpeechBrain [12]. Vì vậy <strong>RoPE + Conformer + ASR là prior art đã tồn tại</strong>, không phải novelty của Rev‑RoConformer.</p>
+<h3>2.2 Reversible residual network và Reformer</h3>
+<p>RevNet giới thiệu additive coupling cho phép khôi phục input của layer từ output, nhờ đó phần lớn activation trung gian có thể được tính lại trong backward thay vì giữ từ forward [2]. Reformer đưa reversible residual layers vào Transformer [3]. Vì vậy <strong>reversible Transformer training cũng là prior art</strong>.</p>
+<h3>2.3 RoPE và reversibility đã cùng tồn tại trong mô hình speech</h3>
+<p>LinearSpeech đặc biệt liên quan vì sử dụng RoPE và reversible residual layers trong kiến trúc text-to-speech [6]. Do đó một tuyên bố rộng như “RoPE và reversibility chưa bao giờ được kết hợp trong speech” là sai.</p>
+<h3>2.4 Reversible Conformer đã tồn tại trong nghiên cứu speech</h3>
+<p>Công trình <em>Duplex Diffusion Models Improve Speech-to-Speech Translation</em> của Wu trình bày reversible duplex Conformer với các phương trình inverse rõ ràng cho các thành phần FFN, MHSA và CNN để dịch speech-to-speech hai chiều [10]. Attention của công trình này dùng relative positional embedding chứ không dùng RoPE; mục tiêu chính là duplex speech translation chứ không phải ASR depth-memory scaling. Tuy vậy đây là prior art cấu trúc rất gần. Vì thế Rev‑RoConformer <strong>không tuyên bố phát minh ra reversible Conformer</strong>.</p>
+<h3>2.5 Deep Conformer tự thân không phải mới</h3>
+<p>Deep Sparse Conformer đã khảo sát encoder Conformer tới khoảng một trăm layer với sparse attention và deep normalization [8]. Do đó chỉ huấn luyện encoder 96 hoặc 100 layer không thể coi là novelty.</p>
+<div class="claim"><strong>Phát biểu khoảng trống có thể bảo vệ.</strong> Theo rà soát nguồn công khai của chúng tôi tới <strong>25/07/2026</strong>, chưa xác định được một nghiên cứu ASR công bố nào đánh giá đồng thời <strong>Conformer attention dựa trên RoPE</strong> và <strong>additive-coupling activation reversibility kiểu RevNet/Reformer</strong> như một cơ chế scaling depth-memory có kiểm soát, bao gồm đối chứng trực tiếp với RoPE-Conformer không reversible và RoPE-Conformer dùng gradient checkpointing. Đây là kết quả tìm kiếm, không phải bằng chứng tuyệt đối rằng công trình như vậy không tồn tại.</div>
+
+<h2>3. Kiến trúc</h2>
+<figure><img src="../assets/rev-roconformer-architecture.svg" alt="Kiến trúc Rev-RoConformer"><figcaption>Hình 1. Encoder ASR Rev‑RoConformer đề xuất. Reversibility nhắm tới activation lưu theo chiều sâu, không loại bỏ compute bậc hai của full attention.</figcaption></figure>
+<h3>3.1 Acoustic frontend</h3>
+<p>Cấu hình tham chiếu giả định waveform mono 16 kHz. Frontend truyền thống tính 80-bin log-Mel filterbank với cửa sổ phân tích 25 ms và hop 10 ms. Convolutional subsampling 2D giảm frame rate xuống 4 lần theo mặc định. Điều kiện subsampling ×8 được đưa vào ablation vì chiều dài chuỗi ảnh hưởng trực tiếp tới chi phí attention.</p>
+<p>Sau subsampling, encoder nhận</p>
+\[
+X_0\in\mathbb{R}^{B\times T\times d},
+\]
+<p>với \(B\) là batch size, \(T\) là chiều dài chuỗi sau subsampling và \(d\) là model width.</p>
+
+<h3>3.2 Reversible additive-coupling block</h3>
+<p>Chia hidden state theo channel:</p>
+\[
+X=[x_1;x_2], \qquad x_1,x_2\in\mathbb{R}^{B\times T\times d/2}.
+\]
+<p>Một block Rev‑RoConformer tổng quát:</p>
+\[
+y_1=x_1+F_\ell(x_2),
+\]
+\[
+y_2=x_2+G_\ell(y_1).
+\]
+<p>Một cách phân rã gần với Conformer:</p>
+\[
+F_\ell(z)=\mathrm{FFN}_{1/2}(z)+\mathrm{RoPEMHSA}(z),
+\]
+\[
+G_\ell(z)=\mathrm{ConvModule}(z)+\mathrm{FFN}_{1/2}(z),
+\]
+<p>với pre-normalization bên trong mỗi hàm. Có thể có thứ tự module khác, nhưng thí nghiệm chính phải khóa một cấu hình trước khi tạo headline result.</p>
+
+<h3>3.3 Nghịch đảo chính xác trong số học thực</h3>
+<p>Vì \(y_1\) có sẵn, ta khôi phục:</p>
+\[
+x_2=y_2-G_\ell(y_1).
+\]
+<p>Sau đó:</p>
+\[
+x_1=y_1-F_\ell(x_2).
+\]
+<p>Do đó toàn bộ coupling map \(R_\ell\) khả nghịch:</p>
+\[
+R_\ell^{-1}(R_\ell(X))=X.
+\]
+<div class="warning"><strong>Quan trọng.</strong> Điều này <em>không</em> suy ra \(R_\ell^{-1}=R_\ell\), vì vậy cũng không suy ra \(R_\ell^2=I\). Reversibility và involution là hai tính chất khác nhau.</div>
+
+<h3>3.4 RoPE global self-attention</h3>
+<p>Với mỗi attention head, projection tuyến tính tạo \(Q,K,V\). RoPE xoay từng cặp tọa độ query/key tại vị trí \(t\):</p>
+\[
+R(t\theta)=\begin{bmatrix}\cos(t\theta)&-\sin(t\theta)\\\sin(t\theta)&\cos(t\theta)\end{bmatrix},
+\]
+\[
+Q'_t=R(t\Theta)Q_t,\qquad K'_t=R(t\Theta)K_t.
+\]
+<p>Dense attention:</p>
+\[
+\mathrm{Attn}(Q',K',V)=\mathrm{softmax}\left(\frac{Q'K'^T}{\sqrt{d_h}}\right)V.
+\]
+<p>Ký hiệu số phức \(e^{it\Theta}\) là cách viết gọn cho phép quay 2D theo cặp chiều, vì vậy signature equation mới dùng \(e^{it\Theta}\) thay cho cách dùng \(i^2=-1\) như thể đó là một phương trình mô hình hoàn chỉnh.</p>
+
+<h3>3.5 Nhánh âm học cục bộ</h3>
+<p>Nhánh \(G\) chứa local module kiểu Conformer, thường gồm pointwise projection, activation gated/SiLU, depthwise temporal convolution, normalization và pointwise projection cuối. Nhánh này đưa locality bias bổ sung cho global attention.</p>
+
+<h2>4. Phân tích hiệu quả lý thuyết</h2>
+<h3>Mệnh đề 1. Activation storage phụ thuộc độ sâu</h3>
+<div class="proof"><strong>Phát biểu.</strong> Với activation storage thông thường, encoder \(L\) layer giữ một thành phần bộ nhớ theo độ sâu xấp xỉ
+\[
+M_{\mathrm{act,std}}=\mathcal O(LBTd).
+\]
+Với reversible stack lý tưởng, nơi mỗi input trung gian được tái dựng từ output phía sau khi backward, phần trạng thái phải giữ phụ thuộc độ sâu có thể tiến tới
+\[
+M_{\mathrm{act,rev}}=\mathcal O(BTd),
+\]
+không tính transient recomputation buffer, boundary không reversible, attention workspace, optimizer state, gradient và allocator overhead.
+<br><br><strong>Lập luận.</strong> Backward thông thường cần input activation của mỗi layer để tính local gradient, nên lưu tất cả \(L\) input tạo ra thành phần tuyến tính theo \(L\). Trong reversible stack, input của block \(\ell\) được khôi phục từ output bằng inverse equations ngay trước khi tính gradient. Vì vậy không cần giữ đồng thời toàn bộ input của các tầng trước. Trạng thái boundary được giữ không còn tăng tuyến tính theo số reversible block. □</div>
+<p>Đây là mệnh đề về cấu trúc; mức giảm VRAM đo được có thể nhỏ hơn vì hệ thống thật còn nhiều tensor khác.</p>
+
+<h3>Mệnh đề 2. RoPE bảo toàn chuẩn Euclid</h3>
+<div class="proof">Mỗi cặp RoPE dùng ma trận quay trực giao. Vì
+\[
+R(\phi)^TR(\phi)=I,
+\]
+nên với vector cặp \(z\),
+\[
+\|R(\phi)z\|_2^2=z^TR(\phi)^TR(\phi)z=z^Tz=\|z\|_2^2.
+\]
+Do đó RoPE đưa phase vị trí vào biểu diễn mà không tự thân làm tăng chuẩn Euclid của cặp query/key. □</div>
+
+<h3>Mệnh đề 3. Reversible depth không loại bỏ compute bậc hai của dense attention</h3>
+<div class="proof">Dense attention đánh giá tương tác giữa \(T\) query và \(T\) key. Cấu trúc score có \(T^2\) cặp, và phép nhân chi phối vẫn xấp xỉ \(\mathcal O(T^2d)\). Tái dựng activation thay đổi cách lưu trạng thái theo độ sâu, không thay đổi số tương tác query-key. Vì vậy Rev‑RoConformer không phải linear-attention method. □</div>
+<p>FlashAttention có thể cải thiện mạnh IO và tránh materialize toàn bộ attention matrix trong HBM [9], nhưng về khái niệm nó bổ sung cho reversible depth chứ không thay thế.</p>
+
+<h2>5. “Tối ưu” ở đây nghĩa là gì?</h2>
+<div class="status-grid">
+<div class="status-card"><span class="ok">SUY RA</span><br><strong>Scaling activation theo độ sâu</strong><br>Reversible coupling có thể loại bỏ thành phần retained activation tuyến tính theo depth trong điều kiện lý tưởng.</div>
+<div class="status-card"><span class="ok">PRIOR ART ĐÃ XÁC LẬP</span><br><strong>RoPE cho ASR</strong><br>RoPE đã được đánh giá thực nghiệm trong Conformer-family ASR [5,12].</div>
+<div class="status-card"><span class="hyp">GIẢ THUYẾT</span><br><strong>Giữ/cải thiện WER</strong><br>Phải benchmark; kiến trúc tự thân không chứng minh độ chính xác nhận dạng.</div>
+<div class="status-card"><span class="hyp">GIẢ THUYẾT</span><br><strong>Hiệu quả wall-clock</strong><br>Recomputation trong backward có thể tiết kiệm memory nhưng tăng thời gian.</div>
+<div class="status-card"><span class="no">KHÔNG CLAIM</span><br><strong>Inference memory nhờ reversibility</strong><br>Inference không cần lưu activation cho backward như huấn luyện.</div>
+<div class="status-card"><span class="no">KHÔNG CLAIM</span><br><strong>Global attention tuyến tính</strong><br>Dense full attention vẫn bậc hai theo chiều dài chuỗi.</div>
+</div>
+
+<h2>6. Thiết kế thực nghiệm</h2>
+<h3>6.1 Các hệ thống bắt buộc</h3>
+<table><thead><tr><th>ID</th><th>Encoder</th><th>Vị trí</th><th>Chiến lược bộ nhớ</th><th>Mục tiêu</th></tr></thead><tbody>
+<tr><td>B0</td><td>Conformer</td><td>Relative position</td><td>Standard</td><td>Tham chiếu cổ điển</td></tr>
+<tr><td>B1</td><td>Conformer</td><td>RoPE</td><td>Standard</td><td>Tách hiệu ứng RoPE</td></tr>
+<tr><td>B2</td><td>Rev-Conformer</td><td>Relative position</td><td>Reversible</td><td>Tách hiệu ứng reversibility</td></tr>
+<tr><td><strong>P</strong></td><td><strong>Rev‑RoConformer</strong></td><td><strong>RoPE</strong></td><td><strong>Reversible</strong></td><td>Giao điểm đề xuất</td></tr>
+<tr><td>C1</td><td>RoPE-Conformer</td><td>RoPE</td><td>Gradient checkpointing</td><td>Đối thủ memory trực tiếp</td></tr>
+</tbody></table>
+<p>Gradient checkpointing là baseline bắt buộc. Một reversible method chỉ thắng baseline chưa tối ưu sẽ cho bằng chứng yếu.</p>
+
+<h3>6.2 Ba chế độ công bằng</h3>
+<p><strong>Iso-model:</strong> giữ cố định depth, width, phân bố sequence, batch, precision và decoder. Mục tiêu là cô lập chi phí/lợi ích của reversible execution.</p>
+<p><strong>Iso-memory:</strong> cho các hệ thống cùng ngân sách VRAM và cho phép batch/depth tăng tới giới hạn định trước. Đây là thí nghiệm đo giá trị thực dụng của memory saving.</p>
+<p><strong>Iso-compute:</strong> ghép tương đối FLOPs hoặc GPU-hours. Cách này tính đúng “giá” recomputation thay vì coi memory saving là miễn phí.</p>
+
+<h3>6.3 Dataset</h3>
+<p>Unit/synthetic tests phải đi trước speech training. LibriSpeech train-clean-100 dùng cho phát triển nhanh; LibriSpeech 960 h là benchmark tiếng Anh chính. AISHELL-1, Common Voice hoặc VoxPopuli có thể dùng kiểm chứng cross-language. Việc chọn dữ liệu đa ngôn ngữ không làm thay đổi giả thuyết memory cốt lõi.</p>
+
+<h3>6.4 Độ sâu và precision</h3>
+<p>Depth sweep đề xuất:</p>
+\[
+L\in\{12,24,48,72,96\}.
+\]
+<p>Precision chính là FP32 và BF16; FP16 tùy chọn. Reconstruction error:</p>
+\[
+E_{rec}^{(\ell)}=\frac{\|X_\ell-\hat X_\ell\|_2}{\|X_\ell\|_2+\epsilon}.
+\]
+<p>Phải xác minh gradient equivalence trên mạng nhỏ deterministic trước khi train ASR. Dropout đòi hỏi replay RNG state hoặc deterministic/stateless mask khi recompute.</p>
+
+<h3>6.5 Metrics</h3>
+<p>Độ chính xác: WER và CER khi phù hợp. Hiệu quả: peak allocated/reserved GPU memory, samples/s, audio-seconds/s, GPU-hours tới target validation WER, maximum stable depth và batch size. Số học: reconstruction error, gradient error, NaN/Inf và tỷ lệ run thất bại.</p>
+
+<h2>7. Các giả thuyết có thể bác bỏ</h2>
+<p><strong>H1 — Memory.</strong> Với architecture khớp nhau, Rev‑RoConformer sử dụng peak training memory thấp hơn đáng kể so với RoPE-Conformer standard.</p>
+<p><strong>H2 — Quality.</strong> Với model/compute budget tương đương, chất lượng nhận dạng vẫn cạnh tranh thay vì suy giảm mạnh do tái cấu trúc reversible.</p>
+<p><strong>H3 — Iso-memory scaling.</strong> Memory tiết kiệm cho phép batch hoặc depth hữu ích lớn hơn trong cùng VRAM.</p>
+<p><strong>H4 — Numerical stability.</strong> Reconstruction và gradient error được kiểm soát đủ tốt trong FP32/BF16 ở depth hữu ích.</p>
+<p><strong>H5 — Complementarity.</strong> Reversible depth và exact memory-efficient attention kernels giải quyết bottleneck khác nhau nên có thể kết hợp.</p>
+<div class="warning"><strong>Tiêu chí bác bỏ.</strong> Luận điểm nghiên cứu sẽ yếu đi nếu checkpointing đạt memory tương đương nhưng throughput tốt hơn rõ rệt; mixed-precision reconstruction mất ổn định; tăng depth không mang lại lợi ích chất lượng; attention workspace chiếm ưu thế tuyệt đối; hoặc WER giảm chất lượng dai dẳng dưới điều kiện tuning công bằng.</div>
+
+<h2>8. Hệ quả hiệu năng kỳ vọng</h2>
+<p>Có cơ sở vững để kỳ vọng lợi ích về <em>bộ nhớ theo chiều sâu</em> vì nó suy ra từ cấu trúc reversible. Cũng có lý do cho rằng chất lượng ASR có thể duy trì vì Conformer, RoPE-Conformer và reversible Transformer đều đã được xác lập riêng. Tuy nhiên các dữ kiện này không chứng minh logic rằng tổ hợp sẽ cải thiện WER hay wall-clock speed.</p>
+<p>Kịch bản tích cực hợp lý nhất không phải “tốc độ miễn phí” mà là một trade-off phần cứng mới: chi thêm compute ở backward để giải phóng VRAM, sau đó tái đầu tư VRAM đó vào batch lớn hơn, đoạn huấn luyện dài hơn, model width lớn hơn hoặc encoder sâu hơn. Việc cuối cùng có tạo ASR tốt hơn hay không phụ thuộc dynamics tối ưu và mức sử dụng phần cứng.</p>
+<p>Với bản ghi dài, dense attention vẫn trở thành bottleneck khi \(T\) tăng. STT long-form thực tế nhiều khả năng phải kết hợp reversible depth với frame-rate reduction, FlashAttention và khi cần streaming, chunked hoặc sparse/local attention. Các extension này nên đánh giá riêng để giữ causal attribution rõ ràng.</p>
+
+<h2>9. Kế hoạch tái lập và mã nguồn mở</h2>
+<p>Reference implementation dự kiến dùng PyTorch. Mỗi headline experiment phải công bố config, phiên bản phần mềm/phần cứng, random seed, decoding settings, quy trình đo memory, raw training logs và Git commit chính xác. Unit tests bắt buộc gồm inverse reconstruction, gradient equivalence, RoPE reference equivalence, mixed-precision reconstruction và deep-chain stability.</p>
+<p>Repository cố ý công bố research protocol trước implementation. Cách làm này ngăn code âm thầm quyết định câu hỏi khoa học sau khi đã thấy kết quả. Bảng benchmark phải giữ <code>TBD</code> cho đến khi được sinh từ run tái lập được.</p>
+
+<h2>10. Hạn chế</h2>
+<p>Thứ nhất, literature search hiện là public-source audit chứ chưa phải systematic review đăng ký trước trên mọi cơ sở dữ liệu thuê bao, vì vậy novelty statement có thể cần sửa. Thứ hai, floating-point làm mất tính nghịch đảo chính xác của số học thực nên numerical error là vấn đề thực nghiệm. Thứ ba, reversible training có recomputation và có thể chậm hơn wall-clock dù tiết kiệm memory. Thứ tư, phương pháp không loại bỏ dense-attention quadratic arithmetic. Thứ năm, model sâu hơn không đảm bảo ASR tốt hơn, và very deep Conformer đã được nghiên cứu bằng kỹ thuật khác [8].</p>
+
+<h2>11. Kết luận</h2>
+<p>Rev‑RoConformer nên được hiểu là một thí nghiệm có kiểm soát về một trục efficiency còn ít được khảo sát trong ASR, chứ không phải tuyên bố về một “STT engine hoàn hảo”. Signature:</p>
+\[
+\boxed{T^2\oplus e^{it\Theta}\oplus\mathcal C_{local}\oplus R^{-1}R=I}
+\]
+<p>tách bốn ý tưởng: global context dày đặc, rotary positional geometry, local acoustic modeling và reversible depth. Claim toán học có thể bảo vệ là reversible coupling có thể giảm <em>thành phần activation storage phụ thuộc depth</em>; câu hỏi thực nghiệm còn mở là saving đó có tạo ra WER–memory–compute frontier tốt hơn RoPE-Conformer thường và checkpointed hay không. Trả lời câu hỏi đó—dù kết quả dương hay âm—là mục tiêu của dự án.</p>
+
+<h2>Tài liệu tham khảo</h2>
+<p class="ref">[1] A. Gulati và cs. “Conformer: Convolution-augmented Transformer for Speech Recognition.” 2020. <a href="https://arxiv.org/abs/2005.08100">arXiv:2005.08100</a>.</p>
+<p class="ref">[2] A. N. Gomez, M. Ren, R. Urtasun, R. B. Grosse. “The Reversible Residual Network: Backpropagation Without Storing Activations.” NeurIPS 2017. <a href="https://arxiv.org/abs/1707.04585">arXiv:1707.04585</a>.</p>
+<p class="ref">[3] N. Kitaev, Ł. Kaiser, A. Levskaya. “Reformer: The Efficient Transformer.” ICLR 2020. <a href="https://arxiv.org/abs/2001.04451">arXiv:2001.04451</a>.</p>
+<p class="ref">[4] J. Su và cs. “RoFormer: Enhanced Transformer with Rotary Position Embedding.” 2021. <a href="https://arxiv.org/abs/2104.09864">arXiv:2104.09864</a>.</p>
+<p class="ref">[5] S. Li, M. Xu, X.-L. Zhang. “Conformer-based End-to-end Speech Recognition With Rotary Position Embedding.” 2021. <a href="https://arxiv.org/abs/2107.05907">arXiv:2107.05907</a>.</p>
+<p class="ref">[6] H. Zhang và cs. “LinearSpeech: Parallel Text-to-Speech with Linear Complexity.” Interspeech 2021. <a href="https://www.isca-archive.org/interspeech_2021/zhang21ba_interspeech.html">ISCA Archive</a>.</p>
+<p class="ref">[7] M. Burchi, V. Vielzeuf. “Efficient Conformer...” 2021. <a href="https://arxiv.org/abs/2109.01163">arXiv:2109.01163</a>.</p>
+<p class="ref">[8] X. Wu. “Deep Sparse Conformer for Speech Recognition.” Interspeech 2022. <a href="https://arxiv.org/abs/2209.00260">arXiv:2209.00260</a>.</p>
+<p class="ref">[9] T. Dao và cs. “FlashAttention...” NeurIPS 2022. <a href="https://arxiv.org/abs/2205.14135">arXiv:2205.14135</a>.</p>
+<p class="ref">[10] X. Wu. “Duplex Diffusion Models Improve Speech-to-Speech Translation.” Findings of ACL 2023. <a href="https://aclanthology.org/2023.findings-acl.509/">ACL Anthology</a>.</p>
+<p class="ref">[11] Z. Yao và cs. “Zipformer...” ICLR 2024. <a href="https://arxiv.org/abs/2310.11230">arXiv:2310.11230</a>.</p>
+<p class="ref">[12] S. Zhang, T. Parcollet, R. van Dalen, S. Bhattacharya. “Benchmarking Rotary Position Embeddings for Automatic Speech Recognition.” 2025. <a href="https://arxiv.org/abs/2501.06051">arXiv:2501.06051</a>.</p>
+<p class="small"><strong>Ghi chú liêm chính preprint.</strong> Bản thảo này chứa phân tích kiến trúc và các giả thuyết có thể kiểm chứng. Không chứa số WER, latency, throughput, VRAM hay năng lượng bịa đặt. Mốc kết thúc literature-gap audit nguồn công khai: 25/07/2026.</p>
+</article>
+<footer class="footer">Rev‑RoConformer · Base27-CVNSS · Bản tiếng Việt · <a href="index.html">Tất cả ngôn ngữ</a></footer>
+</body></html>
