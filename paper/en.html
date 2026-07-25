@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rev-RoConformer — English Preprint</title>
+<meta name="description" content="Rev-RoConformer: Memory-Efficient Depth Scaling of Rotary Conformers for Automatic Speech Recognition.">
+<link rel="stylesheet" href="style.css">
+<script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},svg:{fontCache:'global'}};</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+</head>
+<body>
+<nav class="langbar"><a href="index.html">🌐</a><a class="active" href="en.html">EN</a><a href="vi.html">VI</a><a href="zh-CN.html">中文</a><a href="ru.html">RU</a><a href="es.html">ES</a><a href="fr.html">FR</a></nav>
+<header class="hero"><h1>Rev‑RoConformer</h1><p class="subtitle">Memory-Efficient Depth Scaling of Rotary Conformers for Automatic Speech Recognition</p><div class="equation">T² ⊕ e<sup>itΘ</sup> ⊕ C<sub>local</sub> ⊕ R<sup>−1</sup>R = I</div><div class="badges"><span class="badge">Preprint v0.1</span><span class="badge">25 July 2026</span><span class="badge">Not peer reviewed</span><span class="badge">ASR / Speech-to-Text</span></div></header>
+<article class="paper">
+<h1>Rev‑RoConformer: Memory-Efficient Depth Scaling of Rotary Conformers for Automatic Speech Recognition</h1>
+<p class="authors"><strong>Base27-CVNSS Research</strong><br>Open research preprint · 25 July 2026<br><a href="https://github.com/Base27-CVNSS/Rev-RoConformer">github.com/Base27-CVNSS/Rev-RoConformer</a></p>
+
+<section class="abstract"><strong>Abstract.</strong> Conformer encoders have become a central architecture for automatic speech recognition (ASR) because self-attention captures long-range interactions while convolution models local acoustic structure. Rotary Position Embedding (RoPE) has separately been shown to work well in ASR, and reversible residual networks have established a mechanism for reconstructing intermediate activations during backpropagation rather than storing every layer state. We propose <strong>Rev‑RoConformer</strong>, an ASR research architecture that combines RoPE-based global attention, Conformer-style local convolution, and RevNet/Reformer-style additive coupling to study a specific efficiency axis: <em>depth-dependent training activation memory</em>. The architecture does not claim to remove the quadratic arithmetic cost of dense global attention, nor does it claim an inference-memory advantage. We derive the reversible reconstruction equations, show that RoPE is norm-preserving, and establish that the depth-dependent activation-storage term can become asymptotically independent of encoder depth under ideal reversible execution, while attention computation remains quadratic in sequence length. A public literature audit through 25 July 2026 found close prior art—including RoPE-Conformer ASR, RoPE plus reversible layers in TTS, and a reversible Conformer for speech-to-speech translation—but did not identify an ASR study matching the full intersection of RoPE-Conformer and additive-coupling activation reversibility with a controlled depth–memory–compute–WER evaluation. We therefore frame novelty as a falsifiable hypothesis, not an absolute first-ever claim. The preprint specifies an experimental design comparing standard, RoPE, reversible, and gradient-checkpointed Conformer baselines under iso-model, iso-memory, and iso-compute regimes. No WER, throughput, or measured GPU-memory results are fabricated; empirical claims remain open until reproducible benchmark logs are released.</section>
+
+<h2>1. Introduction</h2>
+<p>Automatic speech recognition must simultaneously model structure at very different temporal scales. Local spectral and phonetic patterns matter over tens or hundreds of milliseconds, while lexical, syntactic, discourse and speaker-context dependencies can span much longer ranges. Conformer addressed this tension by combining Transformer-style self-attention with convolutional modules, bringing global and local modeling into a single ASR encoder [1].</p>
+<p>However, two different scaling problems emerge as speech encoders grow. The first is a <strong>sequence-length problem</strong>: dense self-attention evaluates interactions across an acoustic sequence and therefore carries approximately quadratic arithmetic cost in the number of frames. The second is a <strong>depth-memory problem</strong>: ordinary backpropagation stores intermediate activations from many encoder layers, so memory increases with network depth. These problems are related in practice but mathematically distinct.</p>
+<p>Rev‑RoConformer is motivated by the observation that solutions should be assigned to the bottleneck they actually address. RoPE organizes positional geometry inside attention [4,5]. Conformer convolution supplies local acoustic inductive bias [1]. FlashAttention and sparse/local attention techniques target sequence-side attention efficiency [9]. Reversible residual computation targets depth-dependent activation storage [2,3].</p>
+<blockquote><strong>Core research question.</strong> Can an ASR Conformer retain RoPE global attention and local convolution while using reversible additive coupling to reduce the training-memory cost of increasing encoder depth, without unacceptable degradation in recognition quality, numerical stability, or training throughput?</blockquote>
+<p>The project is deliberately narrower than the claim that it produces a universally “optimal” STT engine. The goal is to measure whether reversible depth changes the <em>Pareto frontier</em> between word error rate (WER), GPU memory, compute and useful depth.</p>
+
+<h2>2. Research gap and relation to prior work</h2>
+<h3>2.1 Conformer and RoPE-Conformer ASR</h3>
+<p>Conformer established the combination of self-attention and convolution for ASR [1]. Li, Xu and Zhang later investigated Rotary Position Embedding directly in Conformer-based end-to-end speech recognition and reported gains on AISHELL-1 and LibriSpeech [5]. Zhang et al. subsequently benchmarked RoPE across a broader set of ASR conditions and released recipes in SpeechBrain [12]. Consequently, <strong>RoPE + Conformer + ASR is established prior art</strong> and is not claimed as novel here.</p>
+<h3>2.2 Reversible residual networks and Reformer</h3>
+<p>RevNet introduced additive coupling in which a layer input can be reconstructed from its output, allowing most intermediate activations to be recomputed during backward rather than retained from forward [2]. Reformer applied reversible residual layers in Transformer architectures [3]. Therefore, <strong>reversible Transformer training is also established prior art</strong>.</p>
+<h3>2.3 RoPE and reversibility already coexist in speech</h3>
+<p>LinearSpeech is especially relevant because it uses RoPE and reversible residual layers in a text-to-speech architecture [6]. This means any broad statement that “RoPE and reversibility have never been combined in speech” would be wrong.</p>
+<h3>2.4 A reversible Conformer already exists in speech research</h3>
+<p>Wu's <em>Duplex Diffusion Models Improve Speech-to-Speech Translation</em> presents a reversible duplex Conformer with explicit inverse equations involving FFN, MHSA and CNN components for bidirectional speech-to-speech translation [10]. Its attention uses relative positional embedding rather than RoPE, and its principal objective is duplex speech translation rather than ASR depth-memory scaling. Nevertheless, it is strong structural prior art. Accordingly, Rev‑RoConformer <strong>does not claim to invent the reversible Conformer</strong>.</p>
+<h3>2.5 Deep Conformer is not new by itself</h3>
+<p>Deep Sparse Conformer explored Conformer encoders up to approximately one hundred layers using sparse attention and deep normalization [8]. Thus simply training a 96- or 100-layer encoder would not constitute novelty.</p>
+<div class="claim"><strong>Defensible gap statement.</strong> To the best of our public literature search up to <strong>25 July 2026</strong>, we did not identify a published ASR study that jointly evaluates <strong>RoPE-based Conformer attention</strong> and <strong>RevNet/Reformer-style additive-coupling activation reversibility</strong> as a controlled depth-memory scaling mechanism, including direct comparison against non-reversible and gradient-checkpointed RoPE-Conformer baselines. This is a search result, not proof of non-existence.</div>
+
+<h2>3. Architecture</h2>
+<figure><img src="../assets/rev-roconformer-architecture.svg" alt="Rev-RoConformer architecture"><figcaption>Figure 1. Proposed Rev‑RoConformer ASR encoder. Reversibility targets retained activations across depth, not the quadratic arithmetic of full attention.</figcaption></figure>
+<h3>3.1 Acoustic frontend</h3>
+<p>The reference configuration assumes 16 kHz mono waveform input. A conventional frontend computes 80-bin log-Mel filterbank features using a 25 ms analysis window and 10 ms hop. Two-dimensional convolutional subsampling reduces the acoustic frame rate by a factor of four by default. An ×8 subsampling condition is included as an ablation because the length of the sequence directly controls attention cost.</p>
+<p>After subsampling, the encoder receives</p>
+\[
+X_0\in\mathbb{R}^{B\times T\times d},
+\]
+<p>where \(B\) is batch size, \(T\) is the post-subsampling sequence length and \(d\) is model width.</p>
+
+<h3>3.2 Reversible additive-coupling block</h3>
+<p>Split channels into two states:</p>
+\[
+X=[x_1;x_2], \qquad x_1,x_2\in\mathbb{R}^{B\times T\times d/2}.
+\]
+<p>A generic Rev‑RoConformer block is defined as</p>
+\[
+y_1=x_1+F_\ell(x_2),
+\]
+\[
+y_2=x_2+G_\ell(y_1).
+\]
+<p>A candidate Conformer-aligned decomposition is</p>
+\[
+F_\ell(z)=\mathrm{FFN}_{1/2}(z)+\mathrm{RoPEMHSA}(z),
+\]
+\[
+G_\ell(z)=\mathrm{ConvModule}(z)+\mathrm{FFN}_{1/2}(z),
+\]
+<p>with pre-normalization inside each function. Other orderings are possible, but the primary experiment must freeze a single ordering before headline comparisons.</p>
+
+<h3>3.3 Exact inverse in real arithmetic</h3>
+<p>Because \(y_1\) is available, reconstruct</p>
+\[
+x_2=y_2-G_\ell(y_1).
+\]
+<p>Then reconstruct</p>
+\[
+x_1=y_1-F_\ell(x_2).
+\]
+<p>Thus the entire coupling map \(R_\ell\) is invertible:</p>
+\[
+R_\ell^{-1}(R_\ell(X))=X.
+\]
+<div class="warning"><strong>Important.</strong> This does <em>not</em> imply \(R_\ell^{-1}=R_\ell\), and therefore does not imply \(R_\ell^2=I\). Reversibility and involution are different properties.</div>
+
+<h3>3.4 RoPE global self-attention</h3>
+<p>For each head, linear projections produce \(Q,K,V\). RoPE rotates paired query/key coordinates at position \(t\):</p>
+\[
+R(t\theta)=\begin{bmatrix}\cos(t\theta)&-\sin(t\theta)\\\sin(t\theta)&\cos(t\theta)\end{bmatrix},
+\]
+\[
+Q'_t=R(t\Theta)Q_t,\qquad K'_t=R(t\Theta)K_t.
+\]
+<p>Dense attention is then</p>
+\[
+\mathrm{Attn}(Q',K',V)=\mathrm{softmax}\left(\frac{Q'K'^T}{\sqrt{d_h}}\right)V.
+\]
+<p>The complex-number shorthand \(e^{it\Theta}\) is a compact interpretation of paired two-dimensional rotations, hence the project signature uses \(e^{it\Theta}\) rather than the earlier, mathematically misleading symbol \(i^2=-1\) as if it were a complete model equation.</p>
+
+<h3>3.5 Local acoustic branch</h3>
+<p>The \(G\) path contains a Conformer-style local module, typically including pointwise projection, gated/SiLU activation, depthwise temporal convolution, normalization and a final pointwise projection. This branch supplies a locality bias complementary to global attention.</p>
+
+<h2>4. Theoretical efficiency analysis</h2>
+<h3>Proposition 1. Depth-dependent activation storage</h3>
+<div class="proof"><strong>Statement.</strong> Under ordinary activation storage, an \(L\)-layer encoder retains a depth-dependent activation term on the order of
+\[
+M_{\mathrm{act,std}}=\mathcal O(LBTd).
+\]
+For an ideal reversible stack in which each intermediate input is reconstructed from later outputs during backward, the retained depth-dependent state can approach
+\[
+M_{\mathrm{act,rev}}=\mathcal O(BTd),
+\]
+excluding transient recomputation buffers, non-reversible boundaries, attention workspaces, optimizer states, gradients and allocator overhead.
+<br><br><strong>Argument.</strong> A standard backward pass requires the input activation of each layer to compute local gradients, so storing all \(L\) inputs produces a term linear in \(L\). In a reversible stack, the input to block \(\ell\) is recovered from its output using the inverse equations before evaluating gradients. Hence prior layer inputs need not all remain resident simultaneously. The stored boundary state no longer scales linearly with the number of reversible blocks. □</div>
+<p>This proposition is structural. The measured GPU-memory reduction can be smaller because real systems retain many other tensors.</p>
+
+<h3>Proposition 2. RoPE preserves Euclidean norm</h3>
+<div class="proof">Each RoPE pair uses an orthogonal rotation matrix. Since
+\[
+R(\phi)^TR(\phi)=I,
+\]
+then for any paired vector \(z\),
+\[
+\|R(\phi)z\|_2^2=z^TR(\phi)^TR(\phi)z=z^Tz=\|z\|_2^2.
+\]
+Therefore RoPE injects positional phase without intrinsically increasing the Euclidean norm of the rotated query/key pair. □</div>
+
+<h3>Proposition 3. Reversible depth does not eliminate dense-attention quadratic arithmetic</h3>
+<div class="proof">Dense attention forms interactions between \(T\) queries and \(T\) keys. The score structure has \(T^2\) pairwise entries, and the dominant multiplication remains approximately \(\mathcal O(T^2d)\). Reconstructing layer activations changes how states are stored across depth; it does not change the number of query-key interactions. Therefore Rev‑RoConformer is not a linear-attention method. □</div>
+<p>FlashAttention may substantially improve exact-attention IO behavior and avoid materializing the full attention matrix in high-bandwidth memory [9], but it remains conceptually complementary to reversible depth.</p>
+
+<h2>5. What “optimization” means—and what it does not</h2>
+<div class="status-grid">
+<div class="status-card"><span class="ok">DERIVED</span><br><strong>Depth activation scaling</strong><br>Reversible coupling can remove the linear-in-depth retained activation term under ideal execution.</div>
+<div class="status-card"><span class="ok">ESTABLISHED PRIOR ART</span><br><strong>RoPE for ASR</strong><br>RoPE has already been evaluated successfully in Conformer-family ASR systems [5,12].</div>
+<div class="status-card"><span class="hyp">HYPOTHESIS</span><br><strong>WER preservation/improvement</strong><br>Must be measured; architecture alone cannot prove recognition accuracy.</div>
+<div class="status-card"><span class="hyp">HYPOTHESIS</span><br><strong>Wall-clock efficiency</strong><br>Backward recomputation may reduce memory while increasing runtime.</div>
+<div class="status-card"><span class="no">NOT CLAIMED</span><br><strong>Inference memory from reversibility</strong><br>Inference does not require ordinary backward activation storage, so this is not the main benefit.</div>
+<div class="status-card"><span class="no">NOT CLAIMED</span><br><strong>Linear-time global attention</strong><br>Dense full attention remains quadratic in sequence length.</div>
+</div>
+
+<h2>6. Experimental design</h2>
+<h3>6.1 Mandatory systems</h3>
+<table><thead><tr><th>ID</th><th>Encoder</th><th>Position</th><th>Memory strategy</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>B0</td><td>Conformer</td><td>Relative position</td><td>Standard</td><td>Classical reference</td></tr>
+<tr><td>B1</td><td>Conformer</td><td>RoPE</td><td>Standard</td><td>Isolate RoPE</td></tr>
+<tr><td>B2</td><td>Rev-Conformer</td><td>Relative position</td><td>Reversible</td><td>Isolate reversibility</td></tr>
+<tr><td><strong>P</strong></td><td><strong>Rev‑RoConformer</strong></td><td><strong>RoPE</strong></td><td><strong>Reversible</strong></td><td>Proposed intersection</td></tr>
+<tr><td>C1</td><td>RoPE-Conformer</td><td>RoPE</td><td>Gradient checkpointing</td><td>Direct competing memory strategy</td></tr>
+</tbody></table>
+<p>Gradient checkpointing is mandatory. A reversible method that only beats an unoptimized baseline would provide weak evidence.</p>
+
+<h3>6.2 Three fairness regimes</h3>
+<p><strong>Iso-model:</strong> hold depth, width, sequence distribution, batch, precision and decoder constant. This isolates the cost of reversible execution.</p>
+<p><strong>Iso-memory:</strong> give systems the same VRAM budget and allow useful batch/depth to expand to the predefined limit. This measures the practical value of memory savings.</p>
+<p><strong>Iso-compute:</strong> match FLOPs or GPU-hours as closely as possible. This charges reversible methods for recomputation rather than treating memory savings as free.</p>
+
+<h3>6.3 Dataset ladder</h3>
+<p>Unit/synthetic tests precede speech training. LibriSpeech train-clean-100 is proposed for fast development; LibriSpeech 960 h is the principal English benchmark. AISHELL-1, Common Voice or VoxPopuli can provide cross-language validation. The choice of multilingual data does not alter the core memory hypothesis.</p>
+
+<h3>6.4 Depth and precision</h3>
+<p>Recommended depth sweep:</p>
+\[
+L\in\{12,24,48,72,96\}.
+\]
+<p>Primary precision conditions are FP32 and BF16, with FP16 optional. Reconstruction error is measured as</p>
+\[
+E_{rec}^{(\ell)}=\frac{\|X_\ell-\hat X_\ell\|_2}{\|X_\ell\|_2+\epsilon}.
+\]
+<p>Gradient equivalence must be validated on deterministic small models before ASR training. Dropout requires RNG-state replay or a stateless deterministic mask during recomputation.</p>
+
+<h3>6.5 Metrics</h3>
+<p>Recognition metrics: WER and CER where applicable. Efficiency metrics: peak allocated/reserved GPU memory, samples/s, audio-seconds/s, GPU-hours to a target validation WER, maximum stable depth and batch size. Numerical metrics: reconstruction error, gradient error, NaN/Inf events and failed-run rate.</p>
+
+<h2>7. Falsifiable hypotheses</h2>
+<p><strong>H1 — Memory.</strong> At matched architecture, Rev‑RoConformer will use materially less peak training memory than standard RoPE-Conformer.</p>
+<p><strong>H2 — Quality.</strong> At a matched model/compute budget, recognition quality will remain competitive rather than collapsing because of reversible restructuring.</p>
+<p><strong>H3 — Iso-memory scaling.</strong> Memory savings will permit a larger useful batch or depth within a fixed VRAM budget.</p>
+<p><strong>H4 — Numerical stability.</strong> Reconstruction and gradient errors will remain sufficiently controlled in FP32/BF16 across useful encoder depths.</p>
+<p><strong>H5 — Complementarity.</strong> Reversible depth and exact memory-efficient attention kernels will address different bottlenecks and may therefore compose.</p>
+<div class="warning"><strong>Rejection criteria.</strong> The research thesis is weakened if checkpointing matches memory at clearly superior throughput, mixed-precision reconstruction becomes unstable, additional depth gives no quality benefit, attention workspaces dominate total memory, or WER degrades persistently under fair tuning.</div>
+
+<h2>8. Expected performance implications</h2>
+<p>There are good reasons to expect a <em>memory</em> benefit, because it follows from the reversible computation structure. There are also reasons to believe ASR quality may remain viable: Conformer, RoPE-Conformer and reversible Transformer components are individually established. However, those facts do not logically prove that their combination improves WER or wall-clock speed.</p>
+<p>The most plausible positive outcome is not “free speed.” It is a new hardware trade-off: spend extra backward computation to release VRAM, then reinvest that VRAM in a larger batch, longer training segments, greater model width, or greater encoder depth. Whether this produces a superior end-to-end ASR system depends on optimization dynamics and hardware utilization.</p>
+<p>For long recordings, dense attention still becomes the dominant issue as \(T\) grows. Practical long-form STT would likely combine reversible depth with frame-rate reduction, FlashAttention and, if necessary, streaming, chunked or sparse/local attention. Those extensions should be evaluated separately so that causal attribution remains clear.</p>
+
+<h2>9. Reproducibility and open-source plan</h2>
+<p>The reference implementation is intended for PyTorch. Every headline experiment should publish configuration files, software/hardware versions, random seeds, decoding settings, memory-profiling procedure, raw training logs and the exact Git commit. Unit tests must include inverse reconstruction, gradient equivalence, RoPE reference equivalence, mixed-precision reconstruction and deep-chain stability.</p>
+<p>The repository intentionally ships the research protocol before implementation. This prevents code from silently determining the scientific question after the fact. Benchmark result tables should remain marked <code>TBD</code> until generated from reproducible runs.</p>
+
+<h2>10. Limitations</h2>
+<p>First, the literature search is public-source rather than a fully registered systematic review over every subscription database, so the novelty statement may require revision. Second, floating-point arithmetic breaks exact real-number inversion, making numerical error an empirical issue. Third, reversible training introduces recomputation and may lose wall-clock efficiency even while reducing memory. Fourth, the method does not remove quadratic dense-attention arithmetic. Fifth, deeper models are not guaranteed to improve ASR, and very deep Conformers have already been explored through other techniques [8].</p>
+
+<h2>11. Conclusion</h2>
+<p>Rev‑RoConformer is best understood not as a claim of a solved “perfect STT engine,” but as a controlled experiment about an underexplored efficiency axis in ASR. Its signature</p>
+\[
+\boxed{T^2\oplus e^{it\Theta}\oplus\mathcal C_{local}\oplus R^{-1}R=I}
+\]
+<p>separates four ideas: dense global context, rotary positional geometry, local acoustic modeling and reversible depth. The mathematically defensible claim is that reversible coupling can reduce the <em>depth-dependent activation-storage term</em>; the empirically open question is whether that saving creates a better WER–memory–compute frontier than ordinary and checkpointed RoPE-Conformers. Answering that question—with positive or negative results—is the purpose of this project.</p>
+
+<h2>References</h2>
+<p class="ref">[1] A. Gulati et al. “Conformer: Convolution-augmented Transformer for Speech Recognition.” 2020. <a href="https://arxiv.org/abs/2005.08100">arXiv:2005.08100</a>.</p>
+<p class="ref">[2] A. N. Gomez, M. Ren, R. Urtasun, R. B. Grosse. “The Reversible Residual Network: Backpropagation Without Storing Activations.” NeurIPS, 2017. <a href="https://arxiv.org/abs/1707.04585">arXiv:1707.04585</a>.</p>
+<p class="ref">[3] N. Kitaev, Ł. Kaiser, A. Levskaya. “Reformer: The Efficient Transformer.” ICLR, 2020. <a href="https://arxiv.org/abs/2001.04451">arXiv:2001.04451</a>.</p>
+<p class="ref">[4] J. Su et al. “RoFormer: Enhanced Transformer with Rotary Position Embedding.” 2021. <a href="https://arxiv.org/abs/2104.09864">arXiv:2104.09864</a>.</p>
+<p class="ref">[5] S. Li, M. Xu, X.-L. Zhang. “Conformer-based End-to-end Speech Recognition With Rotary Position Embedding.” 2021. <a href="https://arxiv.org/abs/2107.05907">arXiv:2107.05907</a>.</p>
+<p class="ref">[6] H. Zhang et al. “LinearSpeech: Parallel Text-to-Speech with Linear Complexity.” Interspeech 2021. <a href="https://www.isca-archive.org/interspeech_2021/zhang21ba_interspeech.html">ISCA Archive</a>.</p>
+<p class="ref">[7] M. Burchi, V. Vielzeuf. “Efficient Conformer: Progressive Downsampling and Grouped Attention for Automatic Speech Recognition.” 2021. <a href="https://arxiv.org/abs/2109.01163">arXiv:2109.01163</a>.</p>
+<p class="ref">[8] X. Wu. “Deep Sparse Conformer for Speech Recognition.” Interspeech 2022. <a href="https://arxiv.org/abs/2209.00260">arXiv:2209.00260</a>.</p>
+<p class="ref">[9] T. Dao et al. “FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness.” NeurIPS 2022. <a href="https://arxiv.org/abs/2205.14135">arXiv:2205.14135</a>.</p>
+<p class="ref">[10] X. Wu. “Duplex Diffusion Models Improve Speech-to-Speech Translation.” Findings of ACL 2023. <a href="https://aclanthology.org/2023.findings-acl.509/">ACL Anthology</a>.</p>
+<p class="ref">[11] Z. Yao et al. “Zipformer: A Faster and Better Encoder for Automatic Speech Recognition.” ICLR 2024. <a href="https://arxiv.org/abs/2310.11230">arXiv:2310.11230</a>.</p>
+<p class="ref">[12] S. Zhang, T. Parcollet, R. van Dalen, S. Bhattacharya. “Benchmarking Rotary Position Embeddings for Automatic Speech Recognition.” 2025. <a href="https://arxiv.org/abs/2501.06051">arXiv:2501.06051</a>.</p>
+
+<p class="small"><strong>Preprint integrity note.</strong> This manuscript contains architecture analysis and testable hypotheses. It does not contain fabricated WER, latency, throughput, VRAM or energy measurements. Literature cutoff for the stated public-source gap audit: 25 July 2026.</p>
+</article>
+<footer class="footer">Rev‑RoConformer · Base27-CVNSS · English edition · <a href="index.html">All languages</a></footer>
+</body></html>
